@@ -1,6 +1,9 @@
 import serial
 from typing import List
 from csv import DictWriter
+from matplotlib import pyplot as pl
+import pandas as pd
+from itertools import zip_longest
 
 class InstrumentException(Exception):
     pass
@@ -133,7 +136,17 @@ if __name__ == '__main__':
     serial_baud = 9600
 
     instrument = Genesys5(serial_port, serial_baud, initialize=False)
-    print(instrument.scan_cells(500, 550, 1.0, [1,2,3]))
+    measurements = instrument.scan_cells(200, 800, 5, [1,2,3,4,5])
     #instrument.set_cell(1)
 
-    
+    fig, ax = pl.subplots(1,1)
+
+    for key in measurements.keys():
+        ax.plot(
+        [entry[0] for entry in measurements[key].items()],
+        [entry[1] for entry in measurements[key].items()],
+        label=key
+        )
+    ax.legend()
+    fig.show()
+    input()
