@@ -2,7 +2,6 @@ import serial
 from typing import List
 from csv import DictWriter
 from matplotlib import pyplot as pl
-import pandas as pd
 from itertools import zip_longest
 
 class InstrumentException(Exception):
@@ -35,13 +34,13 @@ class GenesysSerialHandler:
 
 class Genesys5:
 
-    def __init__(self, port:str, baudrate:int=9600, initialize:bool=False, datamode:str="TRANS"):
+    def __init__(self, port:str, baudrate:int=9600, datamode:str="TRANS", initialize:bool=False):
         
         self.serial = GenesysSerialHandler(port, baudrate)
         print(self.serial.read_write('MODEL'))
         self.baseline_set = False
-        self.datamode = 'TRANS'
-        self.set_datamode("TRANS")
+        self.datamode = datamode
+        self.set_datamode(datamode)
 
         if initialize:
             self.baseline()
@@ -49,14 +48,17 @@ class Genesys5:
     def set_datamode(self, datamode:str):
         if datamode == "TRANS":
             self.serial.read_write("DATAMODE TRANS")
+            self.datamode == 'TRANS'
         elif datamode == "ABS":
             self.serial.read_write("DATAMODE ABS")
+            self.datamode == 'ABS'
         else:
             raise ValueError(f"datamode must be 'TRANS' or 'ABS', not {datamode}")
 
     def baseline(self) -> None:
         "Measure the baseline of the instrument"
 
+        print('Measuring baseline')
         # Set a 6 minute timeout (baseline takes 5 mins)
         self.serial.session.timeout=360
         try:
@@ -65,6 +67,7 @@ class Genesys5:
             raise InstrumentException("Baseline measurement failed") from exc
         except Exception as e:
             raise e
+        self.serial.session.timeout=15
     
     def scan(self, start, stop, step) -> dict:
         """
@@ -135,9 +138,39 @@ if __name__ == '__main__':
     serial_port = '/dev/ttyUSB0'
     serial_baud = 9600
 
-    instrument = Genesys5(serial_port, serial_baud, initialize=False)
-    measurements = instrument.scan_cells(200, 800, 5, [1,2,3,4,5])
-    #instrument.set_cell(1)
+    cell_list = [1,2,3]
+
+    start_wavelength = 500
+    end_wavelength = 550
+    wavelength_step = 5
+
+    #data_type = 'TRANS'
+    data_type = 'ABS'
+
+    instrument = Genesys5(serial_port, serial_baud, initialize=False, datamode=data_type)
+
+    measurements = instrument.scan_cells(
+        start_wavelength,
+        end_wavelength,
+        wavelength_step,
+        cell_list
+        )
+
+    results_list = []
+    
+    for wavelength in measurements[list(measurements.keys())[0]].keys():
+        temp_dict = {"wavelength":wavelength}
+        for cell_no in cell_list:
+            temp_dict[cell_no] = measurements[cell_no][wavelength]
+        results_list.append(temp_dict)
+
+    with open(f'{data_type}_results.csv', 'w', newline='') as file:
+        fieldnames = [x for x in cell_list]
+        fieldnames.insert(0, 'wavelength')
+        writer = DictWriter(file, fieldnames=fieldnames)
+        writer.writerow({fieldname:fieldname for fieldname in fieldnames})
+        for result in results_list:
+            writer.writerow(result)
 
     fig, ax = pl.subplots(1,1)
 
@@ -145,8 +178,15 @@ if __name__ == '__main__':
         ax.plot(
         [entry[0] for entry in measurements[key].items()],
         [entry[1] for entry in measurements[key].items()],
-        label=key
+        label=f"Sample {key}"
         )
+    ax.set_xlabel("Wavelength (nanometers)")
+    if instrument.datamode == 'TRANS':
+        ax.set_ylabel("% Transmitted Light")
+    elif instrument.datamode == 'ABS':
+        ax.set_ylabel("Absorbance (AU)")
     ax.legend()
+    fig.set_size_inches(10,10)
+    fig.savefig(f'{data_type}_data.jpg')
     fig.show()
     input()
